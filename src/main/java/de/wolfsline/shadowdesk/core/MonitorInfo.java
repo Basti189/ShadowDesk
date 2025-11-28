@@ -1,3 +1,5 @@
+package de.wolfsline.shadowdesk.core;
+
 public record MonitorInfo(int index, String description, int minBrightness, int currentBrightness, int maxBrightness,
                           boolean primary) {
 

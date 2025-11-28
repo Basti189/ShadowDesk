@@ -1,88 +1,76 @@
-import com.sun.jna.platform.win32.User32;
-import com.sun.jna.platform.win32.WinDef;
-import com.sun.jna.platform.win32.WinDef.DWORDByReference;
-import com.sun.jna.platform.win32.WinUser;
+package de.wolfsline.shadowdesk.core;
+
+import com.sun.jna.platform.win32.*;
+import com.sun.jna.platform.win32.PhysicalMonitorEnumerationAPI.PHYSICAL_MONITOR;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public class MonitorController {
 
-    private static final byte VCP_POWER_MODE = (byte) 0xD6;  // Power Mode
+    private static final byte VCP_POWER_MODE = (byte) 0xD6;
+
+    // Hilfsmethode für BOOL → boolean
+    private boolean ok(WinDef.BOOL b) {
+        return b != null && b.booleanValue();
+    }
 
     /**
-     * Liefert eine Liste aller physikalischen Monitore mit Helligkeitsinfos.
+     * Liefert eine Liste aller physikalischen Monitore inklusive deren Helligkeit.
      */
     public List<MonitorInfo> listMonitors() {
-        List<MonitorInfo> result = new ArrayList<>();
+        List<MonitorInfo> list = new ArrayList<>();
         final int[] globalIndex = {0};
 
-        // Primary HMONITOR holen
-        WinUser.HMONITOR primaryHandle = User32.INSTANCE.MonitorFromPoint(
+        WinUser.HMONITOR primary = User32.INSTANCE.MonitorFromPoint(
                 new WinDef.POINT.ByValue(0, 0),
                 User32.MONITOR_DEFAULTTOPRIMARY
         );
 
         User32.INSTANCE.EnumDisplayMonitors(
-                null,
-                null,
-                (WinUser.HMONITOR hMonitor, WinDef.HDC hdc, WinDef.RECT rect, WinDef.LPARAM data) -> {
+                null, null,
+                (hMonitor, hdc, rect, data) -> {
 
-                    boolean isPrimary = hMonitor.equals(primaryHandle);
+                    boolean isPrimary = hMonitor.equals(primary);
 
-                    DWORDByReference countRef = new DWORDByReference();
-                    boolean ok = Dxva2.INSTANCE.GetNumberOfPhysicalMonitorsFromHMONITOR(
-                            hMonitor,
-                            countRef
-                    );
-                    if (!ok) {
-                        System.err.println("GetNumberOfPhysicalMonitorsFromHMONITOR fehlgeschlagen.");
+                    WinDef.DWORDByReference countRef = new WinDef.DWORDByReference();
+                    if (!ok(Dxva2.INSTANCE.GetNumberOfPhysicalMonitorsFromHMONITOR(hMonitor, countRef))) {
                         return 1;
                     }
 
                     int count = countRef.getValue().intValue();
-                    if (count <= 0)
-                        return 1;
+                    if (count <= 0) return 1;
 
-                    Dxva2.PHYSICAL_MONITOR[] mons =
-                            (Dxva2.PHYSICAL_MONITOR[]) (new Dxva2.PHYSICAL_MONITOR()).toArray(count);
-
-                    ok = Dxva2.INSTANCE.GetPhysicalMonitorsFromHMONITOR(
-                            hMonitor,
-                            count,
-                            mons
-                    );
-
-                    if (!ok) {
-                        System.err.println("GetPhysicalMonitorsFromHMONITOR fehlgeschlagen.");
+                    PHYSICAL_MONITOR[] mons = new PHYSICAL_MONITOR[count];
+                    if (!ok(Dxva2.INSTANCE.GetPhysicalMonitorsFromHMONITOR(hMonitor, count, mons))) {
                         return 1;
                     }
 
-                    for (int i = 0; i < count; i++) {
-                        Dxva2.PHYSICAL_MONITOR mon = mons[i];
+                    for (PHYSICAL_MONITOR pm : mons) {
 
-                        DWORDByReference minRef = new DWORDByReference();
-                        DWORDByReference curRef = new DWORDByReference();
-                        DWORDByReference maxRef = new DWORDByReference();
+                        WinDef.DWORDByReference min = new WinDef.DWORDByReference();
+                        WinDef.DWORDByReference cur = new WinDef.DWORDByReference();
+                        WinDef.DWORDByReference max = new WinDef.DWORDByReference();
 
-                        boolean got = Dxva2.INSTANCE.GetMonitorBrightness(
-                                mon.hPhysicalMonitor,
-                                minRef,
-                                curRef,
-                                maxRef
-                        );
+                        boolean gotBrightness =
+                                ok(Dxva2.INSTANCE.GetMonitorBrightness(pm.hPhysicalMonitor, min, cur, max));
 
-                        String desc = new String(mon.szPhysicalMonitorDescription).trim();
+                        String name = new String(pm.szPhysicalMonitorDescription).trim();
 
-                        if (!got) {
-                            System.err.println("[" + globalIndex[0] + "] " + desc + " -> Brightness fail");
-                        } else {
-                            result.add(new MonitorInfo(
+                        if (gotBrightness) {
+                            list.add(new MonitorInfo(
                                     globalIndex[0],
-                                    desc,
-                                    minRef.getValue().intValue(),
-                                    curRef.getValue().intValue(),
-                                    maxRef.getValue().intValue(),
+                                    name,
+                                    min.getValue().intValue(),
+                                    cur.getValue().intValue(),
+                                    max.getValue().intValue(),
+                                    isPrimary
+                            ));
+                        } else {
+                            list.add(new MonitorInfo(
+                                    globalIndex[0],
+                                    name,
+                                    0, 0, 100,
                                     isPrimary
                             ));
                         }
@@ -91,185 +79,104 @@ public class MonitorController {
                     }
 
                     Dxva2.INSTANCE.DestroyPhysicalMonitors(count, mons);
-
                     return 1;
                 },
                 new WinDef.LPARAM(0)
         );
 
-        return result;
+        return list;
     }
 
     /**
-     * Setzt die Helligkeit eines Monitors anhand des globalen Index.
+     * Setzt die Helligkeit eines Monitors.
      */
     public void setBrightness(int targetIndex, int newBrightness) {
-        System.out.println("Setze Helligkeit von Monitor " + targetIndex + " auf " + newBrightness + " …");
 
         final int[] globalIndex = {0};
         final boolean[] done = {false};
 
-        User32.INSTANCE.EnumDisplayMonitors(
-                null,
-                null,
-                (WinUser.HMONITOR hMonitor, WinDef.HDC hdc, WinDef.RECT rect, WinDef.LPARAM data) -> {
+        User32.INSTANCE.EnumDisplayMonitors(null, null, (hMonitor, hdc, rect, data) -> {
 
-                    if (done[0]) {
-                        return 0; // abbrechen
+            if (done[0]) return 0;
+
+            WinDef.DWORDByReference countRef = new WinDef.DWORDByReference();
+            if (!ok(Dxva2.INSTANCE.GetNumberOfPhysicalMonitorsFromHMONITOR(hMonitor, countRef)))
+                return 1;
+
+            int count = countRef.getValue().intValue();
+            if (count <= 0) return 1;
+
+            PHYSICAL_MONITOR[] mons = new PHYSICAL_MONITOR[count];
+            if (!ok(Dxva2.INSTANCE.GetPhysicalMonitorsFromHMONITOR(hMonitor, count, mons)))
+                return 1;
+
+            for (PHYSICAL_MONITOR pm : mons) {
+                if (globalIndex[0] == targetIndex) {
+
+                    if (!ok(Dxva2.INSTANCE.SetMonitorBrightness(pm.hPhysicalMonitor, newBrightness))) {
+                        System.err.println("Fehler beim SetMonitorBrightness für Monitor " + targetIndex);
                     }
 
-                    DWORDByReference countRef = new DWORDByReference();
-                    boolean ok = Dxva2.INSTANCE.GetNumberOfPhysicalMonitorsFromHMONITOR(
-                            hMonitor,
-                            countRef
-                    );
-                    if (!ok) {
-                        System.err.println("GetNumberOfPhysicalMonitorsFromHMONITOR fehlgeschlagen.");
-                        return 1;
-                    }
+                    done[0] = true;
+                    break;
+                }
 
-                    int count = countRef.getValue().intValue();
-                    if (count <= 0) {
-                        return 1;
-                    }
+                globalIndex[0]++;
+            }
 
-                    Dxva2.PHYSICAL_MONITOR[] mons =
-                            (Dxva2.PHYSICAL_MONITOR[]) (new Dxva2.PHYSICAL_MONITOR()).toArray(count);
+            Dxva2.INSTANCE.DestroyPhysicalMonitors(count, mons);
+            return done[0] ? 0 : 1;
 
-                    ok = Dxva2.INSTANCE.GetPhysicalMonitorsFromHMONITOR(
-                            hMonitor,
-                            count,
-                            mons
-                    );
-                    if (!ok) {
-                        System.err.println("GetPhysicalMonitorsFromHMONITOR fehlgeschlagen.");
-                        return 1;
-                    }
-
-                    for (int i = 0; i < count; i++) {
-                        Dxva2.PHYSICAL_MONITOR mon = mons[i];
-
-                        if (globalIndex[0] == targetIndex && !done[0]) {
-                            String desc = new String(mon.szPhysicalMonitorDescription).trim();
-                            boolean setOk = Dxva2.INSTANCE.SetMonitorBrightness(
-                                    mon.hPhysicalMonitor,
-                                    newBrightness
-                            );
-                            if (!setOk) {
-                                System.err.println("SetMonitorBrightness fehlgeschlagen für Monitor " +
-                                        targetIndex + " (" + desc + ")");
-                            } else {
-                                System.out.println("Helligkeit gesetzt für Monitor " +
-                                        targetIndex + " (" + desc + ")");
-                                done[0] = true;
-                            }
-                        }
-
-                        globalIndex[0]++;
-                    }
-
-                    Dxva2.INSTANCE.DestroyPhysicalMonitors(count, mons);
-
-                    return done[0] ? 0 : 1;
-                },
-                new WinDef.LPARAM(0)
-        );
-
-        if (!done[0]) {
-            System.err.println("Kein Monitor mit Index " + targetIndex + " gefunden.");
-        }
+        }, new WinDef.LPARAM(0));
     }
 
     /**
-     * Power-Mode setzen (z.B. 1=On, 4=Off/Standby).
+     * Setzt PowerMode (1 = On, 4 = Standby).
      */
     public void setPowerMode(int targetIndex, int mode) {
-        System.out.println("Setze PowerMode von Monitor " + targetIndex + " auf " + mode + " …");
 
         final int[] globalIndex = {0};
         final boolean[] done = {false};
 
-        User32.INSTANCE.EnumDisplayMonitors(
-                null,
-                null,
-                (WinUser.HMONITOR hMonitor, WinDef.HDC hdc, WinDef.RECT rect, WinDef.LPARAM data) -> {
+        User32.INSTANCE.EnumDisplayMonitors(null, null, (hMonitor, hdc, rect, data) -> {
 
-                    if (done[0]) {
-                        return 0; // abbrechen
+            if (done[0]) return 0;
+
+            WinDef.DWORDByReference countRef = new WinDef.DWORDByReference();
+            if (!ok(Dxva2.INSTANCE.GetNumberOfPhysicalMonitorsFromHMONITOR(hMonitor, countRef)))
+                return 1;
+
+            int count = countRef.getValue().intValue();
+            if (count <= 0) return 1;
+
+            PHYSICAL_MONITOR[] mons = new PHYSICAL_MONITOR[count];
+            if (!ok(Dxva2.INSTANCE.GetPhysicalMonitorsFromHMONITOR(hMonitor, count, mons)))
+                return 1;
+
+            for (PHYSICAL_MONITOR pm : mons) {
+                if (globalIndex[0] == targetIndex) {
+
+                    if (!ok(Dxva2.INSTANCE.SetVCPFeature(
+                            pm.hPhysicalMonitor,
+                            new WinDef.BYTE(VCP_POWER_MODE),
+                            new WinDef.DWORD(mode)
+                    ))) {
+                        System.err.println("SetVCPFeature PowerMode fehlgeschlagen.");
                     }
 
-                    DWORDByReference countRef = new DWORDByReference();
-                    boolean ok = Dxva2.INSTANCE.GetNumberOfPhysicalMonitorsFromHMONITOR(
-                            hMonitor,
-                            countRef
-                    );
-                    if (!ok) {
-                        System.err.println("GetNumberOfPhysicalMonitorsFromHMONITOR fehlgeschlagen.");
-                        return 1;
-                    }
+                    done[0] = true;
+                    break;
+                }
 
-                    int count = countRef.getValue().intValue();
-                    if (count <= 0) {
-                        return 1;
-                    }
+                globalIndex[0]++;
+            }
 
-                    Dxva2.PHYSICAL_MONITOR[] mons =
-                            (Dxva2.PHYSICAL_MONITOR[]) (new Dxva2.PHYSICAL_MONITOR()).toArray(count);
+            Dxva2.INSTANCE.DestroyPhysicalMonitors(count, mons);
+            return done[0] ? 0 : 1;
 
-                    ok = Dxva2.INSTANCE.GetPhysicalMonitorsFromHMONITOR(
-                            hMonitor,
-                            count,
-                            mons
-                    );
-                    if (!ok) {
-                        System.err.println("GetPhysicalMonitorsFromHMONITOR fehlgeschlagen.");
-                        return 1;
-                    }
-
-                    for (int i = 0; i < count; i++) {
-                        Dxva2.PHYSICAL_MONITOR mon = mons[i];
-
-                        if (globalIndex[0] == targetIndex && !done[0]) {
-                            String desc = new String(mon.szPhysicalMonitorDescription).trim();
-
-                            boolean setOk = Dxva2.INSTANCE.SetVCPFeature(
-                                    mon.hPhysicalMonitor,
-                                    VCP_POWER_MODE,
-                                    mode
-                            );
-
-                            if (!setOk) {
-                                System.err.println("SetVCPFeature (PowerMode) fehlgeschlagen für Monitor " +
-                                        targetIndex + " (" + desc + ")");
-                            } else {
-                                System.out.println("PowerMode gesetzt für Monitor " +
-                                        targetIndex + " (" + desc + "), mode=" + mode);
-                                done[0] = true;
-                            }
-                        }
-
-                        globalIndex[0]++;
-                    }
-
-                    Dxva2.INSTANCE.DestroyPhysicalMonitors(count, mons);
-
-                    return done[0] ? 0 : 1;
-                },
-                new WinDef.LPARAM(0)
-        );
-
-        if (!done[0]) {
-            System.err.println("Kein Monitor mit Index " + targetIndex + " gefunden oder Mode nicht unterstützt.");
-        }
+        }, new WinDef.LPARAM(0));
     }
 
-    // Convenience-Methoden
-
-    public void standbyMonitor(int targetIndex) {
-        setPowerMode(targetIndex, 4);
-    }
-
-    public void wakeMonitor(int targetIndex) {
-        setPowerMode(targetIndex, 1);
-    }
+    public void standbyMonitor(int index) { setPowerMode(index, 4); }
+    public void wakeMonitor(int index) { setPowerMode(index, 1); }
 }

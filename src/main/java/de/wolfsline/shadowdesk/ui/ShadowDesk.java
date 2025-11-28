@@ -23,14 +23,14 @@ import java.util.logging.Logger;
  * - Alt+1 / Alt+2 / Alt+3 ... als globale Hotkeys zum Standby/Wake des jeweiligen Monitors
  * - Helligkeit-Slider pro Monitor (im Dialog)
  */
-public class ShedowDesk {
+public class ShadowDesk {
 
     private final MonitorController controller;
     private List<MonitorInfo> monitors;
     private final Set<Integer> standbyMonitors = new HashSet<>();
     private TrayIcon trayIcon;
 
-    public ShedowDesk() {
+    public ShadowDesk() {
         this.controller = new MonitorController();
         reloadMonitors();
     }
@@ -57,11 +57,11 @@ public class ShedowDesk {
         logger.setLevel(Level.OFF);
         logger.setUseParentHandlers(false);
 
-        ShedowDesk app = new ShedowDesk();
+        ShadowDesk app = new ShadowDesk();
         app.initTray();
         app.initHotkeys();
 
-        System.out.println("Screen Blackout Tray gestartet. Alt+1/2/3/... oder Tray-Menü verwenden.");
+        System.out.println("ShadowDeskTray gestartet. Alt+1/2/3/... oder Tray-Menü verwenden.");
     }
 
     // ---------- Tray ----------
@@ -75,7 +75,7 @@ public class ShedowDesk {
         SystemTray tray = SystemTray.getSystemTray();
         Image image = createTrayIconImage();
 
-        trayIcon = new TrayIcon(image, "Screen Blackout");
+        trayIcon = new TrayIcon(image, "ShadowDesk");
         trayIcon.setImageAutoSize(true);
 
         rebuildTrayMenu();
