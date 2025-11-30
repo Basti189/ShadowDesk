@@ -1,0 +1,11 @@
+<component name="ArtifactManager">
+  <artifact type="jar" name="ShadowDesk:jar">
+    <output-path>$PROJECT_DIR$/out/artifacts/ShadowDesk_jar</output-path>
+    <root id="archive" name="ShadowDesk.jar">
+      <element id="module-output" name="ShadowDesk" />
+      <element id="extracted-dir" path="$MAVEN_REPOSITORY$/net/java/dev/jna/jna-platform/5.18.1/jna-platform-5.18.1.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$MAVEN_REPOSITORY$/net/java/dev/jna/jna/5.18.1/jna-5.18.1.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$MAVEN_REPOSITORY$/com/github/kwhat/jnativehook/2.2.2/jnativehook-2.2.2.jar" path-in-jar="/" />
+    </root>
+  </artifact>
+</component>
